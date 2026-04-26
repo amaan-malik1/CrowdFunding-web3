@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+pragma solidity ^0.7.3;
+pragma experimental ABIEncoderV2;
 
 contract CrowdFunding {
     struct Campaign {
@@ -21,7 +22,7 @@ contract CrowdFunding {
     function createCampaign(address _owner, string memory _title, string memory _description, uint256 _target, uint256 _deadline, string memory _image) public returns (uint256) {
         Campaign storage campaign = campaigns[numberOfCampaigns];
 
-        require(campaign.deadline < block.timestamp, "The deadline should be a date in the future.");
+        require(_deadline > block.timestamp, "The deadline should be a date in the future.");
 
         campaign.owner = _owner;
         campaign.title = _title;
@@ -37,18 +38,23 @@ contract CrowdFunding {
     }
 
     function donateToCampaign(uint256 _id) public payable {
+        require(_id < numberOfCampaigns, "Campaign does not exist.");
+
         uint256 amount = msg.value;
 
         Campaign storage campaign = campaigns[_id];
+
+        require(block.timestamp < campaign.deadline, "Campaign deadline has passed.");
+        require(amount > 0, "Donation should be greater than 0.");
 
         campaign.donators.push(msg.sender);
         campaign.donations.push(amount);
 
         (bool sent,) = payable(campaign.owner).call{value: amount}("");
 
-        if(sent) {
-            campaign.amountCollected = campaign.amountCollected + amount;
-        }
+        require(sent, "Failed to send Ether to campaign owner.");
+
+        campaign.amountCollected = campaign.amountCollected + amount;
     }
 
     function getDonators(uint256 _id) view public returns (address[] memory, uint256[] memory) {

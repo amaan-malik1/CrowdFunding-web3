@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom';
-import { ethers } from 'ethers';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useStateContext } from '../context';
 import { CountBox, CustomButton, Loader } from '../components';
@@ -9,32 +8,55 @@ import { thirdweb } from '../assets';
 
 const CampaignDetails = () => {
   const { state } = useLocation();
+  const { id } = useParams();
   const navigate = useNavigate();
-  const { donate, getDonations, contract, address } = useStateContext();
+  const { donate, getCampaign, getDonations, contract, address } = useStateContext();
 
   const [isLoading, setIsLoading] = useState(false);
   const [amount, setAmount] = useState('');
   const [donators, setDonators] = useState([]);
+  const [campaign, setCampaign] = useState(state || null);
 
-  const remainingDays = daysLeft(state.deadline);
+  const remainingDays = campaign ? daysLeft(campaign.deadline) : '0';
+
+  const fetchCampaign = async () => {
+    if (state) {
+      setCampaign(state);
+      return;
+    }
+
+    const data = await getCampaign(id);
+    setCampaign(data);
+  };
 
   const fetchDonators = async () => {
-    const data = await getDonations(state.pId);
+    const data = await getDonations(state?.pId ?? id);
 
     setDonators(data);
   }
 
   useEffect(() => {
-    if(contract) fetchDonators();
-  }, [contract, address])
+    if(contract) {
+      fetchCampaign();
+      fetchDonators();
+    }
+  }, [address, contract, id, state])
 
   const handleDonate = async () => {
+    if (!campaign) {
+      return;
+    }
+
     setIsLoading(true);
 
-    await donate(state.pId, amount); 
+    await donate(campaign.pId, amount); 
 
     navigate('/')
     setIsLoading(false);
+  }
+
+  if (!campaign) {
+    return null;
   }
 
   return (
@@ -43,16 +65,16 @@ const CampaignDetails = () => {
 
       <div className="w-full flex md:flex-row flex-col mt-10 gap-[30px]">
         <div className="flex-1 flex-col">
-          <img src={state.image} alt="campaign" className="w-full h-[410px] object-cover rounded-xl"/>
+          <img src={campaign.image} alt="campaign" className="w-full h-[410px] object-cover rounded-xl"/>
           <div className="relative w-full h-[5px] bg-[#3a3a43] mt-2">
-            <div className="absolute h-full bg-[#4acd8d]" style={{ width: `${calculateBarPercentage(state.target, state.amountCollected)}%`, maxWidth: '100%'}}>
+            <div className="absolute h-full bg-[#4acd8d]" style={{ width: `${calculateBarPercentage(campaign.target, campaign.amountCollected)}%`, maxWidth: '100%'}}>
             </div>
           </div>
         </div>
 
         <div className="flex md:w-[150px] w-full flex-wrap justify-between gap-[30px]">
           <CountBox title="Days Left" value={remainingDays} />
-          <CountBox title={`Raised of ${state.target}`} value={state.amountCollected} />
+          <CountBox title={`Raised of ${campaign.target}`} value={campaign.amountCollected} />
           <CountBox title="Total Backers" value={donators.length} />
         </div>
       </div>
@@ -67,7 +89,7 @@ const CampaignDetails = () => {
                 <img src={thirdweb} alt="user" className="w-[60%] h-[60%] object-contain"/>
               </div>
               <div>
-                <h4 className="font-epilogue font-semibold text-[14px] text-white break-all">{state.owner}</h4>
+                <h4 className="font-epilogue font-semibold text-[14px] text-white break-all">{campaign.owner}</h4>
                 <p className="mt-[4px] font-epilogue font-normal text-[12px] text-[#808191]">10 Campaigns</p>
               </div>
             </div>
@@ -77,7 +99,7 @@ const CampaignDetails = () => {
             <h4 className="font-epilogue font-semibold text-[18px] text-white uppercase">Story</h4>
 
               <div className="mt-[20px]">
-                <p className="font-epilogue font-normal text-[16px] text-[#808191] leading-[26px] text-justify">{state.description}</p>
+                <p className="font-epilogue font-normal text-[16px] text-[#808191] leading-[26px] text-justify">{campaign.description}</p>
               </div>
           </div>
 
