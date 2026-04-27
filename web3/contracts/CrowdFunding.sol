@@ -13,6 +13,7 @@ contract CrowdFunding {
         string image;
         address[] donators;
         uint256[] donations;
+        bool withdrawn;
     }
 
     mapping(uint256 => Campaign) public campaigns;
@@ -50,10 +51,6 @@ contract CrowdFunding {
         campaign.donators.push(msg.sender);
         campaign.donations.push(amount);
 
-        (bool sent,) = payable(campaign.owner).call{value: amount}("");
-
-        require(sent, "Failed to send Ether to campaign owner.");
-
         campaign.amountCollected = campaign.amountCollected + amount;
     }
 
@@ -71,5 +68,22 @@ contract CrowdFunding {
         }
 
         return allCampaigns;
+    }
+
+    function withdraw(uint256 _id) public {
+        require(_id < numberOfCampaigns, "Campaign does not exist.");
+
+        Campaign storage campaign = campaigns[_id];
+
+        require(msg.sender == campaign.owner, "Only campaign owner can withdraw.");
+        require(block.timestamp > campaign.deadline, "Campaign deadline has not passed yet.");
+        require(campaign.amountCollected >= campaign.target, "Target amount not reached.");
+        require(!campaign.withdrawn, "Funds have already been withdrawn.");
+
+        campaign.withdrawn = true;
+
+        (bool sent,) = payable(campaign.owner).call{value: campaign.amountCollected}("");
+
+        require(sent, "Failed to send Ether to campaign owner.");
     }
 }

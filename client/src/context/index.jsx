@@ -120,7 +120,7 @@ export const StateContextProvider = ({ children }) => {
 
       const parsedDonations = [];
 
-      for(let i = 0; i < numberOfDonations; i++) {
+      for (let i = 0; i < numberOfDonations; i++) {
         parsedDonations.push({
           donator: donations[0][i],
           donation: ethers.utils.formatEther(donations[1][i].toString())
@@ -131,6 +131,20 @@ export const StateContextProvider = ({ children }) => {
     } catch (error) {
       console.error('Error getting donations:', error);
       return [];
+    }
+  };
+
+  const withdrawFunds = async (pId) => {
+    try {
+      assertContract();
+
+      const contract = new ethers.Contract(contractAddress, contractAbi, signer);
+      const data = await contract.withdraw(pId);
+
+      return data;
+    } catch (error) {
+      console.error('Error withdrawing funds:', error);
+      throw error;
     }
   };
 
@@ -146,7 +160,8 @@ export const StateContextProvider = ({ children }) => {
         getCampaigns,
         getUserCampaigns,
         donate,
-        getDonations
+        getDonations,
+        withdrawFunds
       }}
     >
       {children}
