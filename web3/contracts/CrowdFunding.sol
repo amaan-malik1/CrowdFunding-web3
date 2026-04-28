@@ -13,16 +13,27 @@ contract CrowdFunding {
         string image;
         address[] donators;
         uint256[] donations;
+        bool withdrawn;
     }
 
     mapping(uint256 => Campaign) public campaigns;
 
     uint256 public numberOfCampaigns = 0;
 
-    function createCampaign(address _owner, string memory _title, string memory _description, uint256 _target, uint256 _deadline, string memory _image) public returns (uint256) {
+    function createCampaign(
+        address _owner,
+        string memory _title,
+        string memory _description,
+        uint256 _target,
+        uint256 _deadline,
+        string memory _image
+    ) public returns (uint256) {
         Campaign storage campaign = campaigns[numberOfCampaigns];
 
-        require(_deadline > block.timestamp, "The deadline should be a date in the future.");
+        require(
+            _deadline > block.timestamp,
+            "The deadline should be a date in the future."
+        );
 
         campaign.owner = _owner;
         campaign.title = _title;
@@ -44,32 +55,65 @@ contract CrowdFunding {
 
         Campaign storage campaign = campaigns[_id];
 
-        require(block.timestamp < campaign.deadline, "Campaign deadline has passed.");
+        require(
+            block.timestamp < campaign.deadline,
+            "Campaign deadline has passed."
+        );
         require(amount > 0, "Donation should be greater than 0.");
 
         campaign.donators.push(msg.sender);
         campaign.donations.push(amount);
 
-        (bool sent,) = payable(campaign.owner).call{value: amount}("");
+        (bool sent, ) = payable(campaign.owner).call{value: amount}("");
 
         require(sent, "Failed to send Ether to campaign owner.");
 
         campaign.amountCollected = campaign.amountCollected + amount;
     }
 
-    function getDonators(uint256 _id) view public returns (address[] memory, uint256[] memory) {
+    function getDonators(
+        uint256 _id
+    ) public view returns (address[] memory, uint256[] memory) {
         return (campaigns[_id].donators, campaigns[_id].donations);
     }
 
     function getCampaigns() public view returns (Campaign[] memory) {
         Campaign[] memory allCampaigns = new Campaign[](numberOfCampaigns);
 
-        for(uint i = 0; i < numberOfCampaigns; i++) {
+        for (uint i = 0; i < numberOfCampaigns; i++) {
             Campaign storage item = campaigns[i];
 
             allCampaigns[i] = item;
         }
 
         return allCampaigns;
+    }
+
+    function withdraw(uint256 _id) public {
+        require(_id < numberOfCampaigns, "Campaign does not exist.");
+
+        Campaign storage campaign = campaigns[_id];
+
+        require(
+            msg.sender == campaign.owner,
+            "Only campaign owner can withdraw."
+        );
+        require(
+            block.timestamp > campaign.deadline,
+            "Campaign deadline has not passed yet."
+        );
+        require(
+            campaign.amountCollected >= campaign.target,
+            "Target amount not reached."
+        );
+        require(!campaign.withdrawn, "Funds have already been withdrawn.");
+
+        campaign.withdrawn = true;
+
+        (bool sent, ) = payable(campaign.owner).call{
+            value: campaign.amountCollected
+        }("");
+
+        require(sent, "Failed to send Ether to campaign owner.");
     }
 }
