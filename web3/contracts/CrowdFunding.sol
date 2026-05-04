@@ -34,6 +34,7 @@ contract CrowdFunding {
             _deadline > block.timestamp,
             "The deadline should be a date in the future."
         );
+        require(_target > 0, "The target should be greater than 0.");
 
         campaign.owner = _owner;
         campaign.title = _title;
@@ -42,6 +43,7 @@ contract CrowdFunding {
         campaign.deadline = _deadline;
         campaign.amountCollected = 0;
         campaign.image = _image;
+        campaign.withdrawn = false;
 
         numberOfCampaigns++;
 
@@ -60,15 +62,26 @@ contract CrowdFunding {
             "Campaign deadline has passed."
         );
         require(amount > 0, "Donation should be greater than 0.");
+        require(
+            !campaign.withdrawn,
+            "Funds have already been withdrawn."
+        );
+        require(
+            campaign.amountCollected < campaign.target,
+            "Campaign target already reached."
+        );
 
         campaign.donators.push(msg.sender);
         campaign.donations.push(amount);
-
-        (bool sent, ) = payable(campaign.owner).call{value: amount}("");
-
-        require(sent, "Failed to send Ether to campaign owner.");
-
         campaign.amountCollected = campaign.amountCollected + amount;
+    }
+
+    function getCampaign(
+        uint256 _id
+    ) public view returns (Campaign memory) {
+        require(_id < numberOfCampaigns, "Campaign does not exist.");
+
+        return campaigns[_id];
     }
 
     function getDonators(
@@ -99,21 +112,49 @@ contract CrowdFunding {
             "Only campaign owner can withdraw."
         );
         require(
-            block.timestamp > campaign.deadline,
-            "Campaign deadline has not passed yet."
-        );
-        require(
             campaign.amountCollected >= campaign.target,
             "Target amount not reached."
         );
         require(!campaign.withdrawn, "Funds have already been withdrawn.");
 
+        uint256 amount = campaign.amountCollected;
         campaign.withdrawn = true;
 
-        (bool sent, ) = payable(campaign.owner).call{
-            value: campaign.amountCollected
-        }("");
+        (bool sent, ) = payable(campaign.owner).call{value: amount}("");
 
         require(sent, "Failed to send Ether to campaign owner.");
+    }
+
+    function refund(uint256 _id) public {
+        require(_id < numberOfCampaigns, "Campaign does not exist.");
+
+        Campaign storage campaign = campaigns[_id];
+
+        require(
+            block.timestamp > campaign.deadline,
+            "Campaign deadline has not passed yet."
+        );
+        require(
+            campaign.amountCollected < campaign.target,
+            "Campaign target was reached."
+        );
+        require(!campaign.withdrawn, "Funds have already been withdrawn.");
+
+        uint256 refundAmount = 0;
+
+        for (uint256 i = 0; i < campaign.donators.length; i++) {
+            if (campaign.donators[i] == msg.sender && campaign.donations[i] > 0) {
+                refundAmount = refundAmount + campaign.donations[i];
+                campaign.donations[i] = 0;
+            }
+        }
+
+        require(refundAmount > 0, "No donation available to refund.");
+
+        campaign.amountCollected = campaign.amountCollected - refundAmount;
+
+        (bool sent, ) = payable(msg.sender).call{value: refundAmount}("");
+
+        require(sent, "Failed to refund donation.");
     }
 }

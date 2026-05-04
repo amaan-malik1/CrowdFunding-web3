@@ -6,27 +6,68 @@ import { CountBox, CustomButton, Loader } from '../components';
 import { calculateBarPercentage, daysLeft } from '../utils';
 import { thirdweb } from '../assets';
 
+const getReadableErrorMessage = (error) => {
+  const rawMessage =
+    error?.reason ||
+    error?.data?.message ||
+    error?.error?.message ||
+    error?.message ||
+    'Transaction failed. Please try again.';
+
+  if (rawMessage.includes('execution reverted:')) {
+    return rawMessage.split('execution reverted:')[1].trim();
+  }
+
+  if (rawMessage.includes('reverted with reason string')) {
+    return rawMessage.split('reverted with reason string')[1].replace(/['":]/g, '').trim();
+  }
+
+  return rawMessage.trim();
+};
+
 const CampaignDetails = () => {
   const { state } = useLocation();
   const { id } = useParams();
   const navigate = useNavigate();
-  const { donate, getCampaign, getDonations, contract, address } = useStateContext();
+  const { donate, getCampaign, getDonations, withdrawCampaign, contract, address } = useStateContext();
 
   const [isLoading, setIsLoading] = useState(false);
   const [amount, setAmount] = useState('');
   const [donators, setDonators] = useState([]);
   const [campaign, setCampaign] = useState(state || null);
+  const [hasWithdrawn, setHasWithdrawn] = useState(Boolean(state?.withdrawn));
+  const [withdrawFeedback, setWithdrawFeedback] = useState({ type: '', text: '' });
 
   const remainingDays = campaign ? daysLeft(campaign.deadline) : '0';
+  const numericAmountCollected = Number(campaign?.amountCollected || 0);
+  const numericTarget = Number(campaign?.target || 0);
+  const isOwner = Boolean(address && campaign?.owner && address.toLowerCase() === campaign.owner.toLowerCase());
+  const isTargetReached = numericAmountCollected >= numericTarget;
+  const isWithdrawDisabled = hasWithdrawn || !isTargetReached;
+
+  const withdrawButtonTitle = hasWithdrawn
+    ? 'Already Withdrawn'
+    : !isTargetReached
+      ? 'Target Not Reached'
+      : 'Withdraw Funds';
 
   const fetchCampaign = async () => {
     if (state) {
-      setCampaign(state);
-      return;
+      setCampaign((prevCampaign) => prevCampaign || state);
     }
 
-    const data = await getCampaign(id);
-    setCampaign(data);
+    try {
+      const data = await getCampaign(id);
+      setCampaign((prevCampaign) => ({ ...(prevCampaign || {}), ...data }));
+
+      if (typeof data?.withdrawn === 'boolean') {
+        setHasWithdrawn(data.withdrawn);
+      }
+    } catch (error) {
+      if (!state) {
+        console.error('Error fetching campaign:', error);
+      }
+    }
   };
 
   const fetchDonators = async () => {
@@ -48,11 +89,70 @@ const CampaignDetails = () => {
     }
 
     setIsLoading(true);
+    setWithdrawFeedback({ type: '', text: '' });
 
-    await donate(campaign.pId, amount); 
+    try {
+      await donate(campaign.pId, amount);
+      navigate('/');
+    } catch (error) {
+      alert(getReadableErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
-    navigate('/')
-    setIsLoading(false);
+  const handleWithdraw = async () => {
+    if (!campaign) {
+      return;
+    }
+
+    if (hasWithdrawn) {
+      setWithdrawFeedback({
+        type: 'error',
+        text: 'Amount has already been withdrawn by the owner.',
+      });
+      return;
+    }
+
+    if (!isTargetReached) {
+      setWithdrawFeedback({
+        type: 'error',
+        text: 'Withdraw becomes available once the funding target is reached.',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    setWithdrawFeedback({ type: '', text: '' });
+
+    try {
+      await withdrawCampaign(campaign.pId ?? Number(id));
+      setHasWithdrawn(true);
+      setWithdrawFeedback({
+        type: 'success',
+        text: 'Campaign funds were withdrawn successfully.',
+      });
+
+      const latestCampaign = await getCampaign(id);
+      setCampaign((prevCampaign) => ({ ...(prevCampaign || {}), ...latestCampaign, withdrawn: true }));
+    } catch (error) {
+      const message = getReadableErrorMessage(error);
+
+      if (message.toLowerCase().includes('already') && message.toLowerCase().includes('withdrawn')) {
+        setHasWithdrawn(true);
+        setWithdrawFeedback({
+          type: 'error',
+          text: 'Amount has already been withdrawn by the owner.',
+        });
+      } else {
+        setWithdrawFeedback({
+          type: 'error',
+          text: message,
+        });
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   if (!campaign) {
@@ -149,6 +249,43 @@ const CampaignDetails = () => {
               />
             </div>
           </div>
+
+          {isOwner && (
+            <div className="mt-[20px] flex flex-col p-4 bg-[#1c1c24] rounded-[10px]">
+              <p className="font-epilogue fount-medium text-[20px] leading-[30px] text-center text-[#808191]">
+                Withdraw campaign funds
+              </p>
+
+              <div className="my-[20px] p-4 bg-[#13131a] rounded-[10px]">
+                <h4 className="font-epilogue font-semibold text-[14px] leading-[22px] text-white">
+                  Owner withdrawal
+                </h4>
+                <p className="mt-[20px] font-epilogue font-normal leading-[22px] text-[#808191]">
+                  {hasWithdrawn
+                    ? 'The campaign funds have already been withdrawn.'
+                    : !isTargetReached
+                      ? 'You can withdraw after the campaign reaches its funding target.'
+                      : 'The campaign is ready for withdrawal.'}
+                </p>
+              </div>
+
+              {withdrawFeedback.text && (
+                <p className={`mb-[20px] font-epilogue font-normal text-[14px] leading-[22px] ${
+                  withdrawFeedback.type === 'error' ? 'text-[#ff6b6b]' : 'text-[#4acd8d]'
+                }`}>
+                  {withdrawFeedback.text}
+                </p>
+              )}
+
+              <CustomButton
+                btnType="button"
+                title={withdrawButtonTitle}
+                styles="w-full bg-[#1dc071]"
+                handleClick={handleWithdraw}
+                disabled={isWithdrawDisabled}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

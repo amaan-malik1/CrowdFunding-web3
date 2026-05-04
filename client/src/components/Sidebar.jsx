@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { logo, sun } from '../assets';
 import { navlinks } from '../constants';
@@ -16,7 +16,9 @@ const Icon = ({ styles, name, imgUrl, isActive, disabled, handleClick }) => (
 
 const Sidebar = () => {
   const navigate = useNavigate();
-  const [isActive, setIsActive] = useState('dashboard');
+  const { pathname } = useLocation();
+
+  const activeLink = navlinks.find((link) => link.link === pathname)?.name || 'dashboard';
 
   return (
     <div className="flex justify-between items-center flex-col sticky top-5 h-[93vh]">
@@ -30,10 +32,9 @@ const Sidebar = () => {
             <Icon 
               key={link.name}
               {...link}
-              isActive={isActive}
+              isActive={activeLink}
               handleClick={() => {
                 if(!link.disabled) {
-                  setIsActive(link.name);
                   navigate(link.link);
                 }
               }}

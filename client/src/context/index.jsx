@@ -7,7 +7,15 @@ import contractConfig from '../contracts/crowdfunding.json';
 const StateContext = createContext();
 
 const contractAddress = contractConfig.address || undefined;
-const contractAbi = contractConfig.abi?.length ? contractConfig.abi : undefined;
+const campaignTuple = 'tuple(address owner,string title,string description,uint256 target,uint256 deadline,uint256 amountCollected,string image,address[] donators,uint256[] donations,bool withdrawn)';
+const appContractAbi = [
+  'function createCampaign(address _owner, string _title, string _description, uint256 _target, uint256 _deadline, string _image) returns (uint256)',
+  'function donateToCampaign(uint256 _id) payable',
+  `function getCampaign(uint256 _id) view returns (${campaignTuple})`,
+  `function getCampaigns() view returns (${campaignTuple}[])`,
+  'function getDonators(uint256 _id) view returns (address[] memory, uint256[] memory)',
+  'function withdraw(uint256 _id)',
+];
 
 const parseCampaign = (campaign, pId) => ({
   owner: campaign.owner,
@@ -17,6 +25,7 @@ const parseCampaign = (campaign, pId) => ({
   deadline: campaign.deadline.toNumber() * 1000,
   amountCollected: ethers.utils.formatEther(campaign.amountCollected.toString()),
   image: campaign.image,
+  withdrawn: Boolean(campaign.withdrawn),
   pId,
 });
 
@@ -33,7 +42,7 @@ export const StateContextProvider = ({ children }) => {
     try {
       assertContract();
 
-      const contract = new ethers.Contract(contractAddress, contractAbi, signer);
+      const contract = new ethers.Contract(contractAddress, appContractAbi, signer);
 
       const data = await contract.createCampaign(
         account, // owner
@@ -56,7 +65,7 @@ export const StateContextProvider = ({ children }) => {
     try {
       if (!signer) return [];
 
-      const contract = new ethers.Contract(contractAddress, contractAbi, signer);
+      const contract = new ethers.Contract(contractAddress, appContractAbi, signer);
       const campaigns = await contract.getCampaigns();
       const parsedCampaings = campaigns.map((campaign, i) => parseCampaign(campaign, i));
 
@@ -71,8 +80,8 @@ export const StateContextProvider = ({ children }) => {
     try {
       if (!signer) throw new Error('Wallet not connected');
 
-      const contract = new ethers.Contract(contractAddress, contractAbi, signer);
-      const campaign = await contract.campaigns(pId);
+      const contract = new ethers.Contract(contractAddress, appContractAbi, signer);
+      const campaign = await contract.getCampaign(pId);
       return parseCampaign(campaign, Number(pId));
     } catch (error) {
       console.error('Error getting campaign:', error);
@@ -98,7 +107,7 @@ export const StateContextProvider = ({ children }) => {
     try {
       assertContract();
 
-      const contract = new ethers.Contract(contractAddress, contractAbi, signer);
+      const contract = new ethers.Contract(contractAddress, appContractAbi, signer);
       const data = await contract.donateToCampaign(pId, {
         value: ethers.utils.parseEther(amount)
       });
@@ -114,7 +123,7 @@ export const StateContextProvider = ({ children }) => {
     try {
       if (!signer) return [];
 
-      const contract = new ethers.Contract(contractAddress, contractAbi, signer);
+      const contract = new ethers.Contract(contractAddress, appContractAbi, signer);
       const donations = await contract.getDonators(pId);
       const numberOfDonations = donations[0].length;
 
@@ -134,11 +143,27 @@ export const StateContextProvider = ({ children }) => {
     }
   };
 
+  const withdrawCampaign = async (pId) => {
+    try {
+      assertContract();
+
+      const contract = new ethers.Contract(contractAddress, appContractAbi, signer);
+      const data = await contract.withdraw(pId);
+
+      await data.wait();
+
+      return data;
+    } catch (error) {
+      console.error('Error withdrawing campaign funds:', error);
+      throw error;
+    }
+  };
+
   return (
     <StateContext.Provider
       value={{
         address: account,
-        contract: signer ? new ethers.Contract(contractAddress, contractAbi, signer) : null,
+        contract: signer ? new ethers.Contract(contractAddress, appContractAbi, signer) : null,
         connect: connectWallet,
         contractAddress,
         createCampaign: publishCampaign,
@@ -146,7 +171,8 @@ export const StateContextProvider = ({ children }) => {
         getCampaigns,
         getUserCampaigns,
         donate,
-        getDonations
+        getDonations,
+        withdrawCampaign
       }}
     >
       {children}
